@@ -1,75 +1,973 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowRad Private — радар</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+  :root {
+    --bg: #080c14;
+    --panel: #0d1524e6;
+    --panel-solid: #0d1524;
+    --border: #1c2b45;
+    --border-soft: #14203560;
+    --text: #cddcf2;
+    --text-dim: #7f96b8;
+    --text-faint: #4c5f80;
+    --accent: #ffa845;
+    --accent-ink: #1a1103;
+    --shadow: 0 8px 30px rgba(0,0,0,0.55);
+    --input-bg: #101c30;
+    --slider-track: #1c2b45;
+    --danger: #ff6a6a;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  [data-theme="light"] {
+    --bg: #eef1f6;
+    --panel: #ffffffea;
+    --panel-solid: #ffffff;
+    --border: #ccd5e3;
+    --border-soft: #ccd5e360;
+    --text: #1c2740;
+    --text-dim: #55647f;
+    --text-faint: #8695ac;
+    --accent: #b96b0f;
+    --accent-ink: #fff6ea;
+    --shadow: 0 8px 28px rgba(30,40,60,0.16);
+    --input-bg: #f4f6fa;
+    --slider-track: #ccd5e3;
+    --danger: #c23b3b;
+  }
+
+  body { background: var(--bg); color: var(--text); transition: background .35s, color .35s; }
+  #map { position:absolute; top:0; bottom:0; left:0; right:0; background:#080c14; }
+  .leaflet-control-attribution { font-size:9px !important; }
+
+  .panel {
+    background: var(--panel);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    transition: background .35s, border-color .35s;
+  }
+
+  .top-left {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 11px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.09em;
+    color: var(--text-dim);
+  }
+  .brand .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    flex-shrink: 0;
+  }
+  .brand .dot.live { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:.45; transform:scale(1.3); }
+  }
+
+  .segmented {
+    display: flex;
+    padding: 3px;
+    gap: 2px;
+  }
+  .segmented button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 6px 11px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background .18s, color .18s;
+  }
+  .segmented button svg { width: 14px; height: 14px; fill: currentColor; flex-shrink:0; }
+  .segmented button:hover { color: var(--text); }
+  .segmented button.active {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .segmented.vertical { flex-direction: column; }
+
+  .radar-control {
+    position: absolute;
+    bottom: 20px;
+    right: 14px;
+    z-index: 1000;
+    padding: 12px;
+    width: 172px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .radar-control .segmented { flex-direction: column; background: var(--input-bg); border-radius: 9px; }
+  .radar-control .segmented button { justify-content: flex-start; padding: 7px 10px; font-size: 11px; }
+
+  .legend-block { display:flex; flex-direction:column; gap:2px; }
+  .legend-title {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border-soft);
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+  }
+  .legend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 190px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .legend-list::-webkit-scrollbar { width: 4px; }
+  .legend-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .legend-row { display:flex; align-items:center; gap:7px; }
+  .legend-swatch {
+    width: 15px; height: 12px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    border: 1px solid var(--border-soft);
+  }
+  .legend-swatch.empty {
+    background-image: linear-gradient(45deg, var(--border-soft) 25%, transparent 25%, transparent 50%, var(--border-soft) 50%, var(--border-soft) 75%, transparent 75%, transparent);
+    background-size: 6px 6px;
+  }
+  .legend-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .opacity-block { display:flex; flex-direction:column; gap:5px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+  .opacity-row { display:flex; align-items:center; justify-content:space-between; }
+  .opacity-row .opacity-title {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-faint);
+  }
+  .opacity-row .opacity-value { font-family: var(--mono); font-size: 10px; color: var(--text-dim); }
+  .opacity-block input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    background: var(--slider-track);
+    border-radius: 2px;
+    outline: none;
+  }
+  .opacity-block input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); cursor:pointer; border: 2px solid var(--panel-solid);
+  }
+  .opacity-block input[type="range"]::-moz-range-thumb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); cursor:pointer; border: 2px solid var(--panel-solid);
+  }
+
+  .timeline-control {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    padding: 8px 10px 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 320px;
+    justify-content: center;
+  }
+  .timeline-control .transport { display:flex; align-items:center; gap:4px; }
+  .timeline-control button.tbtn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 7px;
+    width: 28px; height: 28px;
+    display:flex; align-items:center; justify-content:center;
+    cursor: pointer;
+    transition: all .18s;
+  }
+  .timeline-control button.tbtn svg { width:13px; height:13px; fill:currentColor; }
+  .timeline-control button.tbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .timeline-control button.tbtn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .timeline-control input[type="range"] {
+    flex: 1;
+    min-width: 130px;
+    height: 4px;
+    -webkit-appearance: none;
+    background: var(--slider-track);
+    border-radius: 2px;
+    outline: none;
+  }
+  .timeline-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--panel-solid);
+  }
+  .timeline-control input[type="range"]::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--accent); cursor:pointer; border: 2px solid var(--panel-solid);
+  }
+  .readout { display:flex; flex-direction:column; align-items:center; min-width: 78px; }
+  .readout .time-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .readout .frame-counter {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-faint);
+  }
+  .speed-seg { display:flex; gap:2px; padding-left: 6px; border-left: 1px solid var(--border-soft); margin-left: 2px; }
+  .speed-seg button {
+    background:transparent; border:1px solid var(--border); color:var(--text-dim);
+    font-family: var(--mono); font-size:9.5px; border-radius:6px; padding:4px 6px; cursor:pointer;
+  }
+  .speed-seg button.active { background: var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+
+  #status {
+    position: absolute;
+    bottom: 68px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    padding: 4px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    z-index: 1000;
+    pointer-events: none;
+    text-align: center;
+    max-width: 80%;
+    transition: all .3s;
+  }
+  #status.err { color: var(--danger); border-color: #5a2a2a; }
+
+  @media (max-width: 700px) {
+    .timeline-control { min-width: unset; width: calc(100% - 24px); padding: 6px 8px; gap: 6px; bottom: 10px; }
+    .readout { min-width: 58px; }
+    .readout .time-label { font-size: 9.5px; }
+    .speed-seg { display:none; }
+    .radar-control { bottom: 64px; right: 10px; width: 148px; padding: 10px; }
+    #status { bottom: 58px; font-size: 9.5px; padding: 3px 10px; }
+    .top-left { top: 10px; left: 10px; }
+    .brand span.label { display:none; }
+    .segmented button span.label { display:none; }
+    .segmented button { padding: 7px; }
+  }
+
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+  }
+  .modal-overlay.hidden {
+    display: none;
+  }
+  .modal-window {
+    background: var(--panel-solid);
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    padding: 40px 50px;
+    max-width: 520px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    text-align: center;
+    position: relative;
+  }
+  .modal-window .icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+  }
+  .modal-window h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 16px;
+    font-family: var(--mono);
+  }
+  .modal-window p {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: 12px;
+  }
+  .modal-window .highlight {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .modal-window .small-text {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 8px;
+  }
+  .modal-close-btn {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 10px;
+    padding: 12px 40px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 20px;
+    transition: all .2s;
+    font-family: var(--mono);
+  }
+  .modal-close-btn:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+  .modal-close-btn:active {
+    transform: scale(0.95);
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="status">—</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-window">
+    <div class="icon">⚠️</div>
+    <h2>ВНИМАНИЕ</h2>
+    <p>
+      Если ты получил этот радар <span class="highlight">нелегальным способом</span>, 
+      прошу <span class="highlight">удалить</span>.
+    </p>
+    <p>
+      Этот сайт принадлежит <span class="highlight">FLOWRad</span> и 
+      <span class="highlight">не предназначен для распространения!</span>
+    </p>
+    <p class="small-text">
+      Помощь в проекте: <span class="highlight">iDarkMeteo</span> и <span class="highlight">TWA</span>
+    </p>
+    <button class="modal-close-btn" id="modalCloseBtn">Понятно</button>
+  </div>
+</div>
+
+<div class="top-left">
+  <div class="brand panel"><span class="dot" id="brandDot"></span><span class="label">FLOWRad Private</span></div>
+  <div class="segmented panel vertical" id="basemapSwitch">
+    <button data-basemap="dark" class="active" title="Тёмная">
+      <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 0 1 0 14V5z"/></svg>
+      <span class="label">Тёмная</span>
+    </button>
+    <button data-basemap="satellite" title="Спутник">
+      <svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      <span class="label">Спутник</span>
+    </button>
+    <button data-basemap="streets" title="Улицы">
+      <svg viewBox="0 0 24 24"><path d="M12 21c-4-4.5-7-8-7-11a7 7 0 1 1 14 0c0 3-3 6.5-7 11zm0-8a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+      <span class="label">Улицы</span>
+    </button>
+    <button data-basemap="eumetsat" title="EUMETSAT — облачность">
+      <svg viewBox="0 0 24 24"><path d="M6 17a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 16 8a4.5 4.5 0 0 1 .5 9H6z"/></svg>
+      <span class="label">EUMETSAT</span>
+    </button>
+  </div>
+</div>
+
+<div class="radar-control panel" id="radarControl">
+  <div class="segmented" id="modeSwitch">
+    <button data-mode="reflect" class="active">Отражаемость</button>
+    <button data-mode="speed">Скорость</button>
+    <button data-mode="height">Высота ВГО</button>
+  </div>
+  <div class="legend-block" id="legendBlock">
+    <div class="legend-title" id="legendTitle">Отражаемость (dBZ)</div>
+    <div class="legend-list" id="legendList"></div>
+  </div>
+  <div class="opacity-block">
+    <div class="opacity-row">
+      <span class="opacity-title">Яркость</span>
+      <span class="opacity-value" id="opacityValue">82%</span>
+    </div>
+    <input type="range" id="opacitySlider" min="10" max="100" step="1" value="82">
+  </div>
+</div>
+
+<div class="timeline-control panel" id="timelineControl">
+  <div class="transport">
+    <button class="tbtn" id="prevBtn" title="Назад">
+      <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+    </button>
+    <button class="tbtn" id="playBtn" title="Воспроизвести">
+      <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <button class="tbtn" id="nextBtn" title="Вперёд">
+      <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg>
+    </button>
+  </div>
+  <input type="range" id="timeSlider" min="0" max="0" value="0" step="1">
+  <div class="readout">
+    <span class="time-label" id="timeLabel">—</span>
+    <span class="frame-counter" id="frameCounter">0/0</span>
+  </div>
+  <div class="speed-seg" id="speedSwitch">
+    <button data-speed="0.5">0.5×</button>
+    <button data-speed="1" class="active">1×</button>
+    <button data-speed="2">2×</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const API_PROXY = "/api/frames";
+
+const MODES = {
+  reflect: { label: 'Отражаемость (dBZ)', coverage: 'europe', candidates: ['dbz', 'reflectivity', 'reflect'], resolved: null },
+  speed:   { label: 'Скорость (м/с)',     coverage: 'europe', candidates: ['velocity', 'vel', 'radial_velocity', 'wind'], resolved: null },
+  height:  { label: 'Высота ВГО (км)',    coverage: 'europe', candidates: ['height', 'echotop', 'etop', 'echo_top', 'vil_echotop'], resolved: null }
+};
+
+const LEGEND_TABLES = {
+  reflect: [
+    ['empty', 'нет данных', 'transparent'],
+    [-30, '-30 dBZ', '#dcdcdc'],
+    [-10, '-10 dBZ', '#a8a8a8'],
+    [-5, '-5 dBZ', '#a8cbe8'],
+    [0, '0 dBZ', '#c3f0a0'],
+    [5, '5 dBZ', '#4be34b'],
+    [10, '10 dBZ', '#33bdec'],
+    [15, '15 dBZ', '#3d6ee6'],
+    [20, '20 dBZ', '#2e39ad'],
+    [25, '25 dBZ', '#2e2e6b'],
+    [30, '30 dBZ', '#fbf13a'],
+    [35, '35 dBZ', '#f5952f'],
+    [40, '40 dBZ', '#f2726a'],
+    [45, '45 dBZ', '#e73a3a'],
+    [50, '50 dBZ', '#54c651'],
+    [55, '55 dBZ', '#2e7d31'],
+    [60, '60 dBZ', '#f04df0'],
+    [65, '65 dBZ', '#a63de0'],
+    [70, '70 dBZ', '#8a3a3a']
+  ],
+  height: [
+    ['empty', 'нет эхо', '#d8d8d8'],
+    [0, '0.00 км', '#4be6a8'],
+    [0.2, '0.20 км', '#55dd88'],
+    [0.5, '0.50 км', '#6bc9a0'],
+    [1, '1.00 км', '#6ba898'],
+    [2, '2.00 км', '#5b9484'],
+    [3, '3.00 км', '#4a6d63'],
+    [4, '4.00 км', '#55c8dd'],
+    [5, '5.00 км', '#4a90d9'],
+    [6, '6.00 км', '#5670c2'],
+    [7, '7.00 км', '#3d4a80'],
+    [8, '8.00 км', '#d4c06a'],
+    [9, '9.00 км', '#e08a5c'],
+    [10, '10.00 км', '#d9584a'],
+    [11, '11.00 км', '#8a3a42'],
+    [12, '12.00 км', '#8ac05c'],
+    [13, '13.00 км', '#3d5c3d'],
+    [14, '14.00 км', '#a04060'],
+    [15, '15.00 км', '#e888c0']
+  ],
+  speed: [
+    ['empty', 'нет эхо', '#d8d8d8'],
+    [-50, '-50.00 м/с', '#6bb0cc'],
+    [-40, '-40.00 м/с', '#5a8fa8'],
+    [-30, '-30.00 м/с', '#3d6b45'],
+    [-25, '-25.00 м/с', '#5a9060'],
+    [-20, '-20.00 м/с', '#4dc060'],
+    [-15, '-15.00 м/с', '#6bdd6b'],
+    [-10, '-10.00 м/с', '#8ae88a'],
+    [-5, '-5.00 м/с', '#b8d4c0'],
+    [-0.5, '-0.50 м/с', '#dcf0e4'],
+    [0, '0.00 м/с', '#f5f5f5'],
+    [0.5, '0.50 м/с', '#f050e0'],
+    [5, '5.00 м/с', '#b050c0'],
+    [10, '10.00 м/с', '#9040a8'],
+    [15, '15.00 м/с', '#a83d40'],
+    [20, '20.00 м/с', '#c04a45'],
+    [25, '25.00 м/с', '#d85850'],
+    [30, '30.00 м/с', '#e06a5c'],
+    [40, '40.00 м/с', '#ec8a78'],
+    [50, '50.00 м/с', '#f0a898']
+  ]
+};
+
+const BASEMAPS = {
+  dark: {
+    ui: 'dark',
+    build: () => [
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd', maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO'
+      })
+    ]
+  },
+  satellite: {
+    ui: 'dark',
+    build: () => [
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19, attribution: 'Tiles &copy; Esri'
+      }),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19, attribution: 'Tiles &copy; Esri'
+      })
+    ]
+  },
+  streets: {
+    ui: 'light',
+    build: () => [
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd', maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO'
+      })
+    ]
+  },
+  eumetsat: {
+    ui: 'dark',
+    build: () => [
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+        subdomains: 'abcd', maxZoom: 19, attribution: '&copy; CARTO'
+      }),
+      L.tileLayer.wms('https://view.eumetsat.int/geoserver/wms', {
+        layers: 'msg_fes:rgb_naturalenhncd',
+        format: 'image/png',
+        transparent: true,
+        version: '1.3.0',
+        maxZoom: 9,
+        minZoom: 1,
+        attribution: '&copy; EUMETSAT'
+      })
+    ]
+  }
+};
+
+let map = L.map('map', { zoomControl: true, worldCopyJump: true }).setView([55.0, 50.0], 4);
+let activeBasemapLayers = [];
+let currentBasemap = 'dark';
+let overlay = null;
+let currentMode = 'reflect';
+let currentFrames = [];
+let currentIndex = 0;
+let boxCache = {};
+let isPlaying = false;
+let playInterval = null;
+let isLoaded = false;
+let playIntervalMs = 450;
+let radarOpacity = 0.82;
+const preloadCache = new Map();
+
+const statusEl = document.getElementById('status');
+const legendTitle = document.getElementById('legendTitle');
+const legendList = document.getElementById('legendList');
+const opacitySlider = document.getElementById('opacitySlider');
+const opacityValue = document.getElementById('opacityValue');
+const timeSlider = document.getElementById('timeSlider');
+const playBtn = document.getElementById('playBtn');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const frameCounter = document.getElementById('frameCounter');
+const timeLabel = document.getElementById('timeLabel');
+const brandDot = document.getElementById('brandDot');
+
+const modalOverlay = document.getElementById('modalOverlay');
+const modalCloseBtn = document.getElementById('modalCloseBtn');
+
+modalOverlay.classList.remove('hidden');
+
+modalCloseBtn.addEventListener('click', function() {
+  modalOverlay.classList.add('hidden');
+});
+
+modalOverlay.addEventListener('click', function(e) {
+  if (e.target === modalOverlay) {
+    modalOverlay.classList.add('hidden');
+  }
+});
+
+function setStatus(msg, isErr) {
+  statusEl.textContent = msg;
+  statusEl.className = isErr ? 'err' : '';
+}
+
+function merc2ll(x, y) {
+  var R = 6378137.0;
+  var lng = (x / R) * 180 / Math.PI;
+  var lat = (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+  return [lat, lng];
+}
+
+async function fetchViaProxy(path) {
+  var cleanPath = path.replace(/^\//, '');
+  var url = API_PROXY + '?path=' + encodeURIComponent(cleanPath);
+  
+  var response = await fetch(url);
+  if (!response.ok) {
+    var errorText = '';
+    try {
+      var errorData = await response.json();
+      errorText = errorData.error || '';
+    } catch (e) {}
+    throw new Error(response.status + ' ' + (errorText || response.statusText));
+  }
+  return response.json();
+}
+
+function frameUrl(frame) {
+  var path = frame.path.replace(/^\//, '');
+  return API_PROXY + '?path=' + encodeURIComponent(path);
+}
+
+function frameLabel(f) {
+  var m = String(f.t).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (m) return m[3] + '.' + m[2] + ' ' + m[4] + ':' + m[5];
+  return String(f.t) || '—';
+}
+
+function renderLegend(modeKey) {
+  var mode = MODES[modeKey];
+  legendTitle.textContent = mode.label;
+  legendList.innerHTML = '';
+  LEGEND_TABLES[modeKey].forEach(function(item) {
+    var value = item[0];
+    var label = item[1];
+    var color = item[2];
+    var row = document.createElement('div');
+    row.className = 'legend-row';
+    var swatch = document.createElement('span');
+    swatch.className = 'legend-swatch' + (value === 'empty' ? ' empty' : '');
+    if (value !== 'empty') swatch.style.background = color;
+    row.appendChild(swatch);
+    var labelEl = document.createElement('span');
+    labelEl.className = 'legend-label';
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+    legendList.appendChild(row);
+  });
+}
+
+function preloadFrames(frames) {
+  frames.forEach(function(f) {
+    var url = frameUrl(f);
+    if (!preloadCache.has(url)) {
+      var img = new Image();
+      img.src = url;
+      preloadCache.set(url, img);
+    }
+  });
+}
+
+async function loadFrameList(modeKey) {
+  var mode = MODES[modeKey];
+  try {
+    setStatus('Загрузка списка кадров…');
+    var data = null;
+    var product = null;
+
+    if (mode.resolved) {
+      try {
+        var d = await fetchViaProxy(mode.resolved + '/' + mode.coverage + '.json');
+        if (Array.isArray(d.frames) && d.frames.length) {
+          data = d;
+          product = mode.resolved;
+        }
+      } catch (e) {
+        mode.resolved = null;
+      }
+    }
+
+    if (!data) {
+      for (var i = 0; i < mode.candidates.length; i++) {
+        var candidate = mode.candidates[i];
+        try {
+          var d = await fetchViaProxy(candidate + '/' + mode.coverage + '.json');
+          if (Array.isArray(d.frames) && d.frames.length) {
+            data = d;
+            product = candidate;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!data) throw new Error('нет данных (пробовал: ' + mode.candidates.join(', ') + ')');
+
+    mode.resolved = product;
+    currentFrames = data.frames;
+    boxCache[product + '/' + mode.coverage] = data.box;
+
+    timeSlider.max = currentFrames.length - 1;
+    timeSlider.value = 0;
+    currentIndex = 0;
+    updateTimeDisplay();
+    preloadFrames(currentFrames);
+
+    await showFrame(0, product, mode.coverage);
+    isLoaded = true;
+  } catch (e) {
+    isLoaded = false;
+    setStatus('Ошибка (' + mode.label + '): ' + e.message, true);
+  }
+}
+
+function showFrame(index, product, coverage) {
+  return new Promise(function(resolve) {
+    if (!currentFrames.length || index < 0 || index >= currentFrames.length) return resolve();
+
+    var frame = currentFrames[index];
+    currentIndex = index;
+    timeSlider.value = index;
+    updateTimeDisplay();
+
+    var box = boxCache[product + '/' + coverage];
+    if (!box) {
+      setStatus('Ошибка: нет геометрии кадра', true);
+      return resolve();
+    }
+    var west = box[0];
+    var south = box[1];
+    var east = box[2];
+    var north = box[3];
+    var bounds = [merc2ll(west, south), merc2ll(east, north)];
+    var url = frameUrl(frame);
+
+    setStatus('Загрузка: ' + frameLabel(frame) + '…');
+    var prevOverlay = overlay;
+    var nextOverlay = L.imageOverlay(url, bounds, { opacity: 0 });
+
+    nextOverlay.once('load', function() {
+      nextOverlay.setOpacity(radarOpacity);
+      overlay = nextOverlay;
+      if (prevOverlay) map.removeLayer(prevOverlay);
+      if (!map._fitted) {
+        map.fitBounds(bounds);
+        map._fitted = true;
+      }
+      setStatus(MODES[currentMode].label + ' — ' + frameLabel(frame));
+      renderLegend(currentMode);
+      resolve();
+    });
+    nextOverlay.once('error', function() {
+      map.removeLayer(nextOverlay);
+      setStatus('Кадр битый, пробуй другой', true);
+      resolve();
+    });
+    nextOverlay.addTo(map);
+  });
+}
+
+function updateTimeDisplay() {
+  if (currentFrames.length) {
+    frameCounter.textContent = (currentIndex + 1) + '/' + currentFrames.length;
+    timeLabel.textContent = frameLabel(currentFrames[currentIndex]);
+  }
+}
+
+function goToFrame(index) {
+  if (!isLoaded) return;
+  var mode = MODES[currentMode];
+  showFrame(index, mode.resolved, mode.coverage);
+}
+
+function nextFrame() {
+  if (currentIndex < currentFrames.length - 1) {
+    goToFrame(currentIndex + 1);
+  } else if (isPlaying) {
+    stopPlayback();
+  }
+}
+
+function prevFrame() {
+  if (currentIndex > 0) goToFrame(currentIndex - 1);
+}
+
+function togglePlayback() {
+  isPlaying ? stopPlayback() : startPlayback();
+}
+
+function startPlayback() {
+  if (currentFrames.length < 2) return;
+  isPlaying = true;
+  playBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>';
+  playBtn.classList.add('active');
+  brandDot.classList.add('live');
+  playInterval = setInterval(function() {
+    if (currentIndex < currentFrames.length - 1) {
+      nextFrame();
+    } else {
+      currentIndex = -1;
+      nextFrame();
+    }
+  }, playIntervalMs);
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  playBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  playBtn.classList.remove('active');
+  brandDot.classList.remove('live');
+  if (playInterval) {
+    clearInterval(playInterval);
+    playInterval = null;
+  }
+}
+
+function restartPlaybackIfPlaying() {
+  if (isPlaying) {
+    clearInterval(playInterval);
+    playInterval = setInterval(function() {
+      if (currentIndex < currentFrames.length - 1) {
+        nextFrame();
+      } else {
+        currentIndex = -1;
+        nextFrame();
+      }
+    }, playIntervalMs);
+  }
+}
+
 function setBasemap(key) {
   if (!BASEMAPS[key]) return;
-  activeBasemapLayers.forEach(l => map.removeLayer(l));
+  activeBasemapLayers.forEach(function(l) {
+    map.removeLayer(l);
+  });
   activeBasemapLayers = BASEMAPS[key].build();
-  activeBasemapLayers.forEach(l => l.addTo(map));
+  activeBasemapLayers.forEach(function(l) {
+    l.addTo(map);
+  });
   if (overlay) overlay.bringToFront();
   currentBasemap = key;
   document.documentElement.setAttribute('data-theme', BASEMAPS[key].ui);
-  document.querySelectorAll('#basemapSwitch button').forEach(b => {
+  document.querySelectorAll('#basemapSwitch button').forEach(function(b) {
     b.classList.toggle('active', b.dataset.basemap === key);
   });
 }
 
-// ============================================
-// 🔄 EVENTS
-// ============================================
-document.getElementById('basemapSwitch').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-basemap]');
+document.getElementById('basemapSwitch').addEventListener('click', function(e) {
+  var btn = e.target.closest('button[data-basemap]');
   if (btn) {
     setBasemap(btn.dataset.basemap);
   }
 });
 
-document.getElementById('modeSwitch').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-mode]');
+document.getElementById('modeSwitch').addEventListener('click', function(e) {
+  var btn = e.target.closest('button[data-mode]');
   if (!btn) return;
   
   stopPlayback();
   currentMode = btn.dataset.mode;
-  document.querySelectorAll('#modeSwitch button').forEach(b => b.classList.toggle('active', b === btn));
+  document.querySelectorAll('#modeSwitch button').forEach(function(b) {
+    b.classList.toggle('active', b === btn);
+  });
   map._fitted = false;
   loadFrameList(currentMode);
 });
 
-document.getElementById('speedSwitch').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-speed]');
+document.getElementById('speedSwitch').addEventListener('click', function(e) {
+  var btn = e.target.closest('button[data-speed]');
   if (!btn) return;
-  document.querySelectorAll('#speedSwitch button').forEach(b => b.classList.toggle('active', b === btn));
-  const mult = parseFloat(btn.dataset.speed);
+  document.querySelectorAll('#speedSwitch button').forEach(function(b) {
+    b.classList.toggle('active', b === btn);
+  });
+  var mult = parseFloat(btn.dataset.speed);
   playIntervalMs = Math.round(450 / mult);
   restartPlaybackIfPlaying();
 });
 
-opacitySlider.addEventListener('input', (e) => {
+opacitySlider.addEventListener('input', function(e) {
   radarOpacity = parseInt(e.target.value, 10) / 100;
   opacityValue.textContent = e.target.value + '%';
   if (overlay) overlay.setOpacity(radarOpacity);
 });
 
-timeSlider.addEventListener('input', (e) => {
+timeSlider.addEventListener('input', function(e) {
   stopPlayback();
-  const idx = parseInt(e.target.value, 10);
+  var idx = parseInt(e.target.value, 10);
   if (idx !== currentIndex) goToFrame(idx);
 });
 
 playBtn.addEventListener('click', togglePlayback);
-prevBtn.addEventListener('click', () => { stopPlayback(); prevFrame(); });
-nextBtn.addEventListener('click', () => { stopPlayback(); nextFrame(); });
-
-document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
-  if (e.key === 'ArrowRight') { stopPlayback(); nextFrame(); e.preventDefault(); }
-  if (e.key === 'ArrowLeft') { stopPlayback(); prevFrame(); e.preventDefault(); }
-  if (e.key === ' ') { togglePlayback(); e.preventDefault(); }
+prevBtn.addEventListener('click', function() {
+  stopPlayback();
+  prevFrame();
+});
+nextBtn.addEventListener('click', function() {
+  stopPlayback();
+  nextFrame();
 });
 
-// ============================================
-// 🚀 START
-// ============================================
+document.addEventListener('keydown', function(e) {
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowRight') {
+    stopPlayback();
+    nextFrame();
+    e.preventDefault();
+  }
+  if (e.key === 'ArrowLeft') {
+    stopPlayback();
+    prevFrame();
+    e.preventDefault();
+  }
+  if (e.key === ' ') {
+    togglePlayback();
+    e.preventDefault();
+  }
+});
+
 setBasemap('dark');
 loadFrameList('reflect');
-setInterval(() => { loadFrameList(currentMode); }, 60000);
+setInterval(function() {
+  loadFrameList(currentMode);
+}, 60000);
 </script>
 </body>
 </html>
